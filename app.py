@@ -1,254 +1,362 @@
+import io
+import re
+import stat
+import zipfile
+from pathlib import PurePosixPath
+from datetime import datetime, timezone
 
-import streamlit as st
 import pandas as pd
-from datetime import datetime
+import streamlit as st
+
+
+# ============================================================
+# TRACEGATE — AI APPLICATION PRE-RELEASE TESTING DASHBOARD
+# ============================================================
 
 st.set_page_config(
-    page_title="ModelCheck | AI Quality Lab",
-    page_icon="🧪",
+    page_title="TraceGate | AI Testing",
+    page_icon="🛡️",
     layout="wide",
-    initial_sidebar_state="expanded",
 )
 
-st.markdown("""
-<style>
-    .block-container {padding-top: 2rem; padding-bottom: 3rem;}
-    .hero {
-        padding: 1.5rem;
-        border: 1px solid rgba(128,128,128,.25);
-        border-radius: 18px;
-        margin-bottom: 1.5rem;
-    }
-    div[data-testid="stMetric"] {
-        border: 1px solid rgba(128,128,128,.25);
-        padding: 1rem;
-        border-radius: 14px;
-    }
-</style>
-""", unsafe_allow_html=True)
+APP_NAME = "TraceGate"
 
-if "runs" not in st.session_state:
-    st.session_state.runs = []
+# ZIP inspection limits
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024       # 20 MB compressed upload
+MAX_FILES = 500
+MAX_TOTAL_EXPANDED = 50 * 1024 * 1024     # 50 MB uncompressed
+MAX_TEXT_FILE = 2 * 1024 * 1024            # 2 MB per text file
+
+TEXT_EXTENSIONS = {
+    ".py", ".js", ".jsx", ".ts", ".tsx",
+    ".json", ".yaml", ".yml", ".toml",
+    ".txt", ".md", ".html", ".sql",
+    ".sh", ".cfg", ".ini", ".env.example",
+    ".xml", ".css",
+}
+
+SOURCE_EXTENSIONS = {
+    ".py", ".js", ".jsx", ".ts", ".tsx",
+}
+
+AI_MARKERS = [
+    "openai",
+    "anthropic",
+    "google.generativeai",
+    "langchain",
+    "llamaindex",
+    "litellm",
+    "transformers",
+    "ollama",
+]
+
+SECRET_PATTERNS = [
+    (
+        "Possible API key",
+        re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b"),
+    ),
+    (
+        "Possible GitHub token",
+        re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}\b"),
+    ),
+    (
+        "Private key marker",
+        re.compile(
+            r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"
+        ),
+    ),
+    (
+        "Possible hard-coded credential",
+        re.compile(
+            r"""(?i)\b(?:api_key|api-key|secret_key|password|access_token)"""
+            r"""\s*[:=]\s*['"][^'"]{8,}['"]"""
+        ),
+    ),
+]
+
+RISK_PATTERNS = [
+    (
+        "Dynamic code execution",
+        re.compile(r"\beval\s*\(|\bexec\s*\("),
+    ),
+    (
+        "Shell execution",
+        re.compile(
+            r"\bos\.system\s*\(|\bsubprocess\.(?:run|Popen|call)\s*\("
+        ),
+    ),
+    (
+        "Deserialization",
+        re.compile(r"\bpickle\.loads?\s*\("),
+    ),
+    (
+        "Potentially unsafe YAML loading",
+        re.compile(r"\byaml\.load\s*\("),
+    ),
+]
+
+
+# ============================================================
+# ZIP SCANNER
+# This function inspects files. It NEVER executes uploaded code.
+# ============================================================
+
+def scan_project_zip(uploaded_bytes):
+    if len(uploaded_bytes) > MAX_UPLOAD_BYTES:
+        raise ValueError("ZIP exceeds the 20 MB upload limit.")
+
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(uploaded_bytes))
+    except (zipfile.BadZipFile, OSError):
+        raise ValueError("This is not a valid ZIP archive.")
+
+    findings = []
+    inventory = []
+    ai_markers_found = set()
+    source_count = 0
+    total_expanded = 0
+
+    def add_finding(severity, file_name, line_number, message):
+        findings.append({
+            "Severity": severity,
+            "File": file_name,
+            "Line": line_number,
+            "Finding": message,
+        })
+
+    with archive:
+        members = archive.infolist()
+
+        if len(members) > MAX_FILES:
+            raise ValueError(
+                f"ZIP contains too many entries. Limit: {MAX_FILES}."
+            )
+
+        for info in members:
+            if info.is_dir():
+                continue
+
+            name = info.filename.replace("\\", "/")
+            path = PurePosixPath(name)
+
+            # Reject absolute paths and directory traversal paths.
+            if path.is_absolute() or ".." in path.parts:
+                raise ValueError(
+                    "Unsafe file path detected. Scan cancelled."
+                )
+
+            # Reject symbolic links.
+            mode = (info.external_attr >> 16) & 0o170000
+            if mode == stat.S_IFLNK:
+                raise ValueError(
+                    "Symbolic links are not accepted. Scan cancelled."
+                )
+
+            # Reject suspicious or excessive expanded archives.
+            if info.file_size < 0:
+                raise ValueError("Invalid file size in ZIP archive.")
+
+            total_expanded += info.file_size
+
+            if total_expanded > MAX_TOTAL_EXPANDED:
+                raise ValueError(
+                    "Expanded ZIP exceeds the 50 MB safety limit."
+                )
+
+            inventory.append(name)
+            suffix = path.suffix.lower()
+
+            if suffix in SOURCE_EXTENSIONS:
+                source_count += 1
+
+            # Skip reading very large files, but keep them in inventory.
+            if info.file_size > MAX_TEXT_FILE:
+                add_finding(
+                    "Review",
+                    name,
+                    0,
+                    "File is too large for text inspection; not scanned.",
+                )
+                continue
+
+            # Avoid extreme compression ratios for non-empty files.
+            if info.file_size > 1_000_000:
+                if info.compress_size == 0:
+                    raise ValueError(
+                        "Suspicious ZIP compression. Scan cancelled."
+                    )
+
+                ratio = info.file_size / info.compress_size
+
+                if ratio > 200:
+                    raise ValueError(
+                        "Suspicious compression ratio. Scan cancelled."
+                    )
+
+            if suffix not in TEXT_EXTENSIONS:
+                continue
+
+            try:
+                raw = archive.read(info)
+                content = raw.decode("utf-8", errors="replace")
+            except (OSError, RuntimeError, zipfile.BadZipFile):
+                add_finding(
+                    "Review",
+                    name,
+                    0,
+                    "Could not safely read this file.",
+                )
+                continue
+
+            lower_content = content.lower()
+
+            for marker in AI_MARKERS:
+                if marker in lower_content:
+                    ai_markers_found.add(marker)
+
+            for line_number, line in enumerate(
+                content.splitlines(),
+                start=1,
+            ):
+                for label, pattern in SECRET_PATTERNS:
+                    if pattern.search(line):
+                        add_finding(
+                            "High",
+                            name,
+                            line_number,
+                            f"{label}. Check the file and revoke exposed "
+                            "credentials if confirmed.",
+                        )
+
+                for label, pattern in RISK_PATTERNS:
+                    if pattern.search(line):
+                        add_finding(
+                            "Review",
+                            name,
+                            line_number,
+                            f"{label} pattern detected. Human review required.",
+                        )
+
+    if not findings:
+        findings.append({
+            "Severity": "Info",
+            "File": "",
+            "Line": 0,
+            "Finding": (
+                "No configured patterns were detected. "
+                "This does not prove the project is safe."
+            ),
+        })
+
+    return {
+        "files": inventory,
+        "findings": findings,
+        "source_count": source_count,
+        "ai_markers": sorted(ai_markers_found),
+    }
+
+
+# ============================================================
+# SESSION STATE
+# Data is kept for the current app session only.
+# ============================================================
+
+if "test_runs" not in st.session_state:
+    st.session_state.test_runs = []
 
 if "baseline" not in st.session_state:
-    st.session_state.baseline = {}
+    st.session_state.baseline = None
 
-st.sidebar.title("🧪 ModelCheck")
-st.sidebar.caption("AI Quality & Reliability")
+if "latest_scan" not in st.session_state:
+    st.session_state.latest_scan = None
+
+
+# ============================================================
+# SIDEBAR NAVIGATION
+# ============================================================
+
+st.sidebar.title("🛡️ TraceGate")
+st.sidebar.caption("AI application testing workspace")
+
 page = st.sidebar.radio(
     "WORKSPACE",
-    ["Overview", "Run a test", "Test history", "Regression report"],
+    [
+        "Overview",
+        "Upload & Scan",
+        "Run a test",
+        "Test history",
+        "Regression report",
+    ],
 )
+
 st.sidebar.divider()
-st.sidebar.caption("Prototype v0.2 · Manual evaluations")
+st.sidebar.caption("Prototype version")
+st.sidebar.caption("Uploaded source code is not executed.")
 
-st.title("ModelCheck")
-st.markdown(
-    "Test AI responses. Compare models. Catch regressions before release."
-)
 
-runs = st.session_state.runs
-latest = {}
-for run in runs:
-    latest[run["test"]] = run
+# ============================================================
+# PAGE 1 — OVERVIEW
+# ============================================================
 
 if page == "Overview":
-    st.markdown("### Your testing overview")
+    st.title("TraceGate")
+    st.subheader("AI Application Pre-release Testing")
 
-    total = len(runs)
-    avg = (
-        sum((r["score_a"] + r["score_b"]) / 2 for r in runs) / total
-        if total else 0
-    )
-    safety_failures = sum(
-        (r["safety_a"] == "Fail") + (r["safety_b"] == "Fail")
-        for r in runs
+    st.write(
+        "Inspect an AI project, record manual test results, and review "
+        "changes between test runs before releasing an application."
     )
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Saved test runs", total)
-    c2.metric("Average quality", f"{avg:.2f}/5" if total else "—")
-    c3.metric("Safety failures", safety_failures)
+    st.info(
+        "Start with Upload & Scan to inspect a ZIP project. "
+        "Runtime testing is not yet implemented in this prototype."
+    )
 
-    st.markdown("### Quick actions")
-    left, right = st.columns(2)
-    with left:
-        st.info("**Model comparison**\n\nCompare two AI answers using the same prompt and scoring criteria.")
-        if st.button("＋ Start a test", use_container_width=True):
-            st.session_state.page = "Run a test"
-            st.rerun()
-    with right:
-        st.info("**Regression monitoring**\n\nCompare the latest scores with your saved baseline.")
-        if st.button("View regression report", use_container_width=True):
-            st.session_state.page = "Regression report"
-            st.rerun()
+    runs = st.session_state.test_runs
 
-    if "page" in st.session_state:
-        target = st.session_state.pop("page")
-        st.info(f"Choose **{target}** in the sidebar to continue.")
+    col1, col2, col3 = st.columns(3)
 
-    st.markdown("### Recent activity")
+    col1.metric("Recorded test runs", len(runs))
+
     if runs:
-        df = pd.DataFrame(runs)
-        st.dataframe(
-            df[["time", "test", "type", "model_a", "score_a",
-                "model_b", "score_b"]],
-            use_container_width=True,
-            hide_index=True,
-        )
+        latest = runs[-1]
+        col2.metric("Latest average score", f"{latest['Average Score']:.1f}/10")
+        col3.metric("Latest result", latest["Result"])
     else:
-        st.info("No tests yet. Open Run a test to create your first comparison.")
+        col2.metric("Latest average score", "—")
+        col3.metric("Latest result", "No tests yet")
 
-elif page == "Run a test":
-    st.markdown("### Create an evaluation")
-    with st.form("evaluation_form"):
-        test_name = st.text_input("Test ID", "support-policy-01")
-        test_type = st.selectbox(
-            "Evaluation type",
-            ["Quality", "Regression", "Safety / red team"],
-        )
-        question = st.text_area("Prompt sent to both models")
-        expected = st.text_area("Expected behavior / pass criteria")
+    st.markdown("### Available features")
 
-        a, b = st.columns(2)
-        with a:
-            st.markdown("#### Model A")
-            model_a = st.text_input("Model A name", "GPT")
-            answer_a = st.text_area("Model A answer", height=150)
-            ca = st.slider("Correctness A", 1, 5, 3)
-            ra = st.slider("Relevance A", 1, 5, 3)
-            ia = st.slider("Instruction following A", 1, 5, 3)
-            sa = st.selectbox("Safety A", ["Not checked", "Pass", "Fail"])
-
-        with b:
-            st.markdown("#### Model B")
-            model_b = st.text_input("Model B name", "Claude")
-            answer_b = st.text_area("Model B answer", height=150)
-            cb = st.slider("Correctness B", 1, 5, 3)
-            rb = st.slider("Relevance B", 1, 5, 3)
-            ib = st.slider("Instruction following B", 1, 5, 3)
-            sb = st.selectbox("Safety B", ["Not checked", "Pass", "Fail"])
-
-        submitted = st.form_submit_button(
-            "Save evaluation", type="primary", use_container_width=True
-        )
-
-    if submitted:
-        if not test_name.strip() or not question.strip():
-            st.error("Enter both a test ID and a prompt.")
-        elif not answer_a.strip() or not answer_b.strip():
-            st.error("Paste both model answers before saving.")
-        else:
-            score_a = round((ca + ra + ia) / 3, 2)
-            score_b = round((cb + rb + ib) / 3, 2)
-
-            st.session_state.runs.append({
-                "time": datetime.now().isoformat(timespec="seconds"),
-                "test": test_name.strip(),
-                "type": test_type,
-                "prompt": question,
-                "expected": expected,
-                "model_a": model_a,
-                "answer_a": answer_a,
-                "score_a": score_a,
-                "safety_a": sa,
-                "model_b": model_b,
-                "answer_b": answer_b,
-                "score_b": score_b,
-                "safety_b": sb,
-            })
-            st.success(
-                f"Saved! {model_a}: {score_a}/5 · {model_b}: {score_b}/5"
-            )
-            if sa == "Fail" or sb == "Fail":
-                st.warning("Safety failure recorded. Review the answers before release.")
-            st.rerun()
-
-elif page == "Test history":
-    st.markdown("### Evaluation history")
-    if runs:
-        df = pd.DataFrame(runs)
-        st.dataframe(df, use_container_width=True, hide_index=True)
-        st.download_button(
-            "Download complete CSV report",
-            df.to_csv(index=False).encode("utf-8-sig"),
-            file_name="modelcheck-report.csv",
-            mime="text/csv",
-            use_container_width=True,
-        )
-    else:
-        st.info("Your saved evaluations will appear here.")
-
-elif page == "Regression report":
-    st.markdown("### Regression monitoring")
-    st.caption(
-        "Save a baseline, run the same test again, and compare the latest scores."
+    st.markdown(
+        """
+        - **Upload & Scan:** Inspect a ZIP archive for selected code patterns.
+        - **Run a test:** Record two answers and manually rate their quality.
+        - **Test history:** Review previously recorded runs in this session.
+        - **Regression report:** Compare the latest run against a baseline.
+        """
     )
 
-    if latest:
-        if st.button("Set latest results as baseline", type="primary"):
-            st.session_state.baseline = {
-                name: {
-                    "score_a": r["score_a"],
-                    "score_b": r["score_b"],
-                    "model_a": r["model_a"],
-                    "model_b": r["model_b"],
-                    "safety_a": r["safety_a"],
-                    "safety_b": r["safety_b"],
-                }
-                for name, r in latest.items()
-            }
-            st.success("Baseline saved for this session.")
-            st.rerun()
+    st.warning(
+        "This prototype is not a security certification. "
+        "It cannot guarantee that an application is safe to release."
+    )
 
-        if st.session_state.baseline:
-            rows = []
-            for name, r in latest.items():
-                base = st.session_state.baseline.get(name)
-                if not base:
-                    rows.append({
-                        "Test": name,
-                        "Status": "New test — no baseline",
-                        "Change A": "—",
-                        "Change B": "—",
-                    })
-                    continue
 
-                da = round(r["score_a"] - base["score_a"], 2)
-                db = round(r["score_b"] - base["score_b"], 2)
-                safety_issue = (
-                    r["safety_a"] == "Fail" or r["safety_b"] == "Fail"
-                )
-                regression = da < 0 or db < 0
+# ============================================================
+# PAGE 2 — UPLOAD & SCAN
+# ============================================================
 
-                status = (
-                    "Safety failure" if safety_issue
-                    else "Review score drop" if regression
-                    else "No score drop detected"
-                )
-                rows.append({
-                    "Test": name,
-                    "Status": status,
-                    "Change A": da,
-                    "Change B": db,
-                })
+elif page == "Upload & Scan":
+    st.title("Upload & Scan")
+    st.subheader("AI Application ZIP Inspector")
 
-            st.dataframe(
-                pd.DataFrame(rows),
-                use_container_width=True,
-                hide_index=True,
-            )
-            st.caption(
-                "These comparisons use manually entered ratings. "
-                "No score drop does not guarantee that an AI system is safe."
-            )
-        else:
-            st.info("Save test runs, then click Set latest results as baseline.")
-    else:
-        st.info("Run at least one evaluation to begin regression monitoring.")
+    st.write(
+        "Upload your source-code ZIP to inventory files and look for "
+        "selected patterns that may deserve review."
+    )
 
-st.divider()
-st.caption(
-    "ModelCheck is an early prototype. Scores are human ratings, "
-    "and session data may disappear when the app restarts."
-)
+    st.warning(
+        "Safety notice: TraceGate does not run, install, or import "
+        "uploaded project code. Do not upload confidential projects or "
+        "real credentials
