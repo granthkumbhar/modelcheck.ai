@@ -1,134 +1,497 @@
 
 import io
+import re
+import stat
 import zipfile
-from datetime import datetime
+from pathlib import PurePosixPath
+from datetime import datetime, timezone
 
 import pandas as pd
 import streamlit as st
 
+
+# =========================================================
+# TRACEGATE — PREMIUM DARK DASHBOARD
+# =========================================================
+
 st.set_page_config(
-    page_title="TraceGate | AI Testing",
+    page_title="TraceGate | AI Safety",
     page_icon="🛡️",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-# -----------------------------
-# Session state
-# -----------------------------
-if "test_history" not in st.session_state:
-    st.session_state.test_history = []
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
-if "scan_history" not in st.session_state:
-    st.session_state.scan_history = []
+:root {
+    --bg: #061225;
+    --panel: #091a31;
+    --border: #164474;
+    --blue: #2584ff;
+    --cyan: #27d8ff;
+    --purple: #8957ff;
+    --green: #00d6a0;
+    --orange: #ff922e;
+    --text: #eef5ff;
+    --muted: #9bb1cf;
+}
 
-if "last_scan" not in st.session_state:
-    st.session_state.last_scan = None
+html, body, [class*="css"] {
+    font-family: 'Inter', sans-serif;
+}
+
+.stApp {
+    background:
+        radial-gradient(ellipse at 48% 0%, #102d50 0%, transparent 48%),
+        linear-gradient(145deg, #061225 0%, #04101f 100%);
+    color: var(--text);
+}
+
+header[data-testid="stHeader"] {
+    background: transparent;
+}
+
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #061225, #08172b);
+    border-right: 1px solid #143458;
+}
+
+[data-testid="stSidebar"] > div {
+    padding-top: 1.3rem;
+}
+
+h1, h2, h3, p, label {
+    color: var(--text);
+}
+
+h1 {
+    font-weight: 800 !important;
+    letter-spacing: -1.2px;
+}
+
+p, li, label {
+    color: #c5d6ed;
+}
+
+.tg-brand {
+    font-size: 27px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    color: white;
+    margin-bottom: 0;
+}
+
+.tg-tagline {
+    color: #8faed3;
+    font-size: 12px;
+    margin-bottom: 20px;
+}
+
+.tg-hero {
+    background:
+        radial-gradient(circle at 82% 40%, #193f78 0%, transparent 27%),
+        linear-gradient(115deg, #07152b, #0a2344 65%, #111b43);
+    border: 1px solid #1464a8;
+    border-radius: 18px;
+    padding: 30px 30px;
+    margin-bottom: 18px;
+    box-shadow: 0 0 30px #087bff0c;
+}
+
+.tg-hero h1 {
+    font-size: clamp(32px, 4vw, 48px);
+    margin: 0 0 5px 0;
+}
+
+.tg-gradient {
+    background: linear-gradient(90deg, #ffffff, #61c5ff, #a78bfa);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.tg-subtitle {
+    color: #b9d9fa;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.tg-description {
+    color: #a9c0df;
+    max-width: 650px;
+    line-height: 1.7;
+}
+
+.tg-shield {
+    font-size: 70px;
+    text-align: center;
+    filter: drop-shadow(0 0 20px #2584ff70);
+}
+
+.tg-card {
+    background: linear-gradient(145deg, #0c203b, #07162a);
+    border: 1px solid #19436b;
+    border-radius: 15px;
+    padding: 19px;
+    margin-bottom: 14px;
+    min-height: 115px;
+}
+
+.tg-card.blue { border-color: #1768ba; }
+.tg-card.green { border-color: #008d80; background: linear-gradient(145deg,#082c35,#07182a); }
+.tg-card.purple { border-color: #6240b5; background: linear-gradient(145deg,#19183e,#0b1730); }
+.tg-card.orange { border-color: #9b5423; }
+
+.tg-label {
+    font-size: 12px;
+    color: #a9bfdc;
+    margin-bottom: 8px;
+}
+
+.tg-number {
+    font-size: 29px;
+    line-height: 1.25;
+    font-weight: 800;
+    color: #ffffff;
+}
+
+.tg-small {
+    color: #8ea8ca;
+    font-size: 12px;
+    margin-top: 8px;
+}
+
+.tg-panel {
+    background: linear-gradient(150deg, #081a30, #071529);
+    border: 1px solid #16436e;
+    border-radius: 16px;
+    padding: 21px;
+    margin: 8px 0 17px 0;
+}
+
+.tg-panel-title {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 3px;
+}
+
+.tg-panel-sub {
+    color: #91aacb;
+    font-size: 12px;
+    margin-bottom: 17px;
+}
+
+.tg-action {
+    background: linear-gradient(150deg, #0d2548, #08182d);
+    border: 1px solid #20558a;
+    border-radius: 13px;
+    padding: 17px;
+    min-height: 165px;
+}
+
+.tg-action-icon {
+    font-size: 28px;
+    margin-bottom: 8px;
+}
+
+.tg-action-title {
+    color: #f4f8ff;
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 7px;
+}
+
+.tg-action-desc {
+    color: #a9bfdc;
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.tg-pill {
+    display: inline-block;
+    border: 1px solid #087e75;
+    color: #52f2c2;
+    background: #06362f;
+    border-radius: 30px;
+    padding: 5px 10px;
+    font-size: 11px;
+}
+
+.tg-row {
+    background: #091b30;
+    border: 1px solid #183b60;
+    border-radius: 10px;
+    padding: 12px;
+    margin: 7px 0;
+}
+
+.tg-muted {
+    color: #92a9c9;
+    font-size: 12px;
+}
+
+.tg-footer {
+    text-align: center;
+    padding: 24px 8px;
+    color: #8ca7c8;
+    font-size: 12px;
+}
+
+div.stButton > button {
+    border: 1px solid #2866a9;
+    background: linear-gradient(100deg, #1469ec, #4b48ec);
+    color: white;
+    border-radius: 9px;
+    font-weight: 600;
+    min-height: 42px;
+    transition: all 0.2s ease;
+}
+
+div.stButton > button:hover {
+    border-color: #69c8ff;
+    color: white;
+    box-shadow: 0 0 18px #248bff35;
+}
+
+div[data-testid="stDownloadButton"] button {
+    border-radius: 9px;
+}
+
+input, textarea {
+    background-color: #07172b !important;
+    color: white !important;
+}
+
+[data-testid="stFileUploader"] {
+    background: #07172b;
+    border: 1px dashed #2584ff;
+    border-radius: 12px;
+    padding: 12px;
+}
+
+[data-testid="stMetric"] {
+    background: #0a1b30;
+    border: 1px solid #19436b;
+    padding: 13px;
+    border-radius: 12px;
+}
+
+[data-testid="stDataFrame"] {
+    border: 1px solid #183c61;
+    border-radius: 10px;
+}
+
+hr {
+    border-color: #183858;
+}
+
+.stAlert {
+    border-radius: 10px;
+}
+
+@media (max-width: 768px) {
+    .tg-hero { padding: 20px; }
+    .tg-panel { padding: 14px; }
+}
+</style>
+""", unsafe_allow_html=True)
 
 
-def add_history(record):
-    st.session_state.test_history.insert(0, record)
-    st.session_state.test_history = st.session_state.test_history[:100]
+# =========================================================
+# ZIP SCANNER — DOES NOT EXECUTE UPLOADED CODE
+# =========================================================
+
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+MAX_FILES = 500
+MAX_TOTAL_EXPANDED = 50 * 1024 * 1024
+MAX_TEXT_FILE = 2 * 1024 * 1024
+
+TEXT_EXTENSIONS = {
+    ".py", ".js", ".jsx", ".ts", ".tsx", ".json",
+    ".yaml", ".yml", ".toml", ".txt", ".md", ".html",
+    ".sql", ".sh", ".cfg", ".ini", ".xml", ".css",
+}
+
+SOURCE_EXTENSIONS = {".py", ".js", ".jsx", ".ts", ".tsx"}
+
+AI_MARKERS = [
+    "openai", "anthropic", "google.generativeai",
+    "langchain", "llamaindex", "litellm",
+    "transformers", "ollama",
+]
+
+SECRET_PATTERNS = [
+    ("Possible API key", re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b")),
+    ("Possible GitHub token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}\b")),
+    (
+        "Private key marker",
+        re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
+    ),
+    (
+        "Possible hard-coded credential",
+        re.compile(
+            r"""(?i)\b(?:api_key|api-key|secret_key|password|access_token)\s*[:=]\s*['"][^'"]{8,}['"]"""
+        ),
+    ),
+]
+
+RISK_PATTERNS = [
+    ("Dynamic code execution", re.compile(r"\beval\s*\(|\bexec\s*\(")),
+    (
+        "Shell execution",
+        re.compile(r"\bos\.system\s*\(|\bsubprocess\.(?:run|Popen|call)\s*\("),
+    ),
+    ("Deserialization", re.compile(r"\bpickle\.loads?\s*\(")),
+    ("Potentially unsafe YAML loading", re.compile(r"\byaml\.load\s*\(")),
+]
 
 
-def scan_zip(uploaded_file):
-    """Inspect ZIP contents without executing uploaded code."""
+def scan_project_zip(uploaded_bytes):
+    if len(uploaded_bytes) > MAX_UPLOAD_BYTES:
+        raise ValueError("ZIP exceeds the 20 MB upload limit.")
+
     findings = []
-    file_rows = []
+    inventory = []
+    ai_found = set()
+    source_count = 0
+    total_expanded = 0
 
-    source_extensions = (
-        ".py", ".js", ".ts", ".jsx", ".tsx",
-        ".json", ".yaml", ".yml", ".toml", ".env", ".txt",
-    )
-
-    patterns = {
-        "Possible hard-coded secret": [
-            "api_key =", "api_key=", "secret_key =",
-            "secret_key=", "password =", "password=",
-            "OPENAI_API_KEY=", "ghp_",
-        ],
-        "Potential unsafe execution": [
-            "eval(", "exec(", "os.system(",
-            "subprocess.Popen(",
-        ],
-        "Potential prompt-injection wording": [
-            "ignore all previous instructions",
-            "ignore previous instructions",
-            "reveal your system prompt",
-        ],
-    }
+    def add_finding(severity, file_name, line, message):
+        findings.append({
+            "Severity": severity,
+            "File": file_name,
+            "Line": line,
+            "Finding": message,
+        })
 
     try:
-        with zipfile.ZipFile(io.BytesIO(uploaded_file.getvalue())) as archive:
-            members = [item for item in archive.infolist() if not item.is_dir()]
+        archive = zipfile.ZipFile(io.BytesIO(uploaded_bytes))
+    except (zipfile.BadZipFile, OSError):
+        raise ValueError("Invalid ZIP archive.")
 
-            for member in members:
-                name = member.filename
+    with archive:
+        members = archive.infolist()
 
-                file_rows.append({
-                    "File": name,
-                    "Size (KB)": round(member.file_size / 1024, 2),
-                })
+        if len(members) > MAX_FILES:
+            raise ValueError("Too many files in ZIP. Maximum: 500.")
 
-                if name.lower().endswith((".env", ".pem", ".key")):
-                    findings.append({
-                        "Severity": "High",
-                        "File": name,
-                        "Finding": "Sensitive-looking file in archive",
-                        "Details": "Check whether this file should be included.",
-                    })
+        for info in members:
+            if info.is_dir():
+                continue
 
-                if (
-                    member.file_size > 1_000_000
-                    or not name.lower().endswith(source_extensions)
-                ):
-                    continue
+            name = info.filename.replace("\\", "/")
+            path = PurePosixPath(name)
 
-                text = archive.read(member).decode("utf-8", errors="ignore")
-                lower_text = text.lower()
+            if path.is_absolute() or ".." in path.parts:
+                raise ValueError("Unsafe file path detected. Scan cancelled.")
 
-                for category, matches in patterns.items():
-                    found = [
-                        pattern for pattern in matches
-                        if pattern.lower() in lower_text
-                    ]
+            mode = (info.external_attr >> 16) & 0o170000
+            if mode == stat.S_IFLNK:
+                raise ValueError("Symbolic links are not accepted.")
 
-                    if found:
-                        severity = (
-                            "High"
-                            if category == "Possible hard-coded secret"
-                            else "Medium"
+            total_expanded += info.file_size
+            if total_expanded > MAX_TOTAL_EXPANDED:
+                raise ValueError("Expanded ZIP exceeds the 50 MB limit.")
+
+            inventory.append(name)
+            suffix = path.suffix.lower()
+
+            if suffix in SOURCE_EXTENSIONS:
+                source_count += 1
+
+            if info.file_size > MAX_TEXT_FILE:
+                add_finding(
+                    "Review", name, 0,
+                    "File too large for text inspection; not scanned.",
+                )
+                continue
+
+            if info.file_size > 1_000_000:
+                if info.compress_size == 0:
+                    raise ValueError("Suspicious ZIP compression.")
+
+                if info.file_size / info.compress_size > 200:
+                    raise ValueError("Suspicious compression ratio.")
+
+            if suffix not in TEXT_EXTENSIONS:
+                continue
+
+            try:
+                content = archive.read(info).decode("utf-8", errors="replace")
+            except (OSError, RuntimeError, zipfile.BadZipFile):
+                add_finding("Review", name, 0, "Could not read this file.")
+                continue
+
+            lower_content = content.lower()
+
+            for marker in AI_MARKERS:
+                if marker in lower_content:
+                    ai_found.add(marker)
+
+            for line_no, line in enumerate(content.splitlines(), 1):
+                for label, pattern in SECRET_PATTERNS:
+                    if pattern.search(line):
+                        add_finding(
+                            "High", name, line_no,
+                            label + ". Verify and revoke if a real credential is exposed.",
                         )
-                        findings.append({
-                            "Severity": severity,
-                            "File": name,
-                            "Finding": category,
-                            "Details": "Matched: " + ", ".join(found[:5]),
-                        })
 
-    except zipfile.BadZipFile:
-        raise ValueError("The uploaded file is not a valid ZIP archive.")
+                for label, pattern in RISK_PATTERNS:
+                    if pattern.search(line):
+                        add_finding(
+                            "Review", name, line_no,
+                            label + " pattern detected; review the code.",
+                        )
 
-    # Remove duplicate findings.
-    unique = []
-    seen = set()
+    if not findings:
+        findings.append({
+            "Severity": "Info",
+            "File": "",
+            "Line": 0,
+            "Finding": "No configured patterns detected. This does not prove the project is safe.",
+        })
 
-    for finding in findings:
-        key = tuple(finding.items())
-        if key not in seen:
-            seen.add(key)
-            unique.append(finding)
+    return {
+        "files": inventory,
+        "findings": findings,
+        "source_count": source_count,
+        "ai_markers": sorted(ai_found),
+    }
 
-    return file_rows, unique
+
+# =========================================================
+# SESSION STATE
+# =========================================================
+
+for key, default in {
+    "test_runs": [],
+    "baseline": None,
+    "latest_scan": None,
+    "page": "Overview",
+}.items():
+    if key not in st.session_state:
+        st.session_state[key] = default
 
 
-# -----------------------------
-# Sidebar
-# -----------------------------
+def go_to(page_name):
+    st.session_state.page = page_name
+
+
+# =========================================================
+# SIDEBAR
+# =========================================================
+
 with st.sidebar:
-    st.markdown("## 🛡️ TraceGate")
-    st.caption("AI application testing workspace")
+    st.markdown(
+        '<div class="tg-brand">🛡️ TraceGate</div>'
+        '<div class="tg-tagline">AI Safety. Before You Ship.</div>',
+        unsafe_allow_html=True,
+    )
 
-    page = st.radio(
+    st.markdown('<div class="tg-muted">WORKSPACE</div>', unsafe_allow_html=True)
+
+    st.radio(
         "Navigation",
         [
             "Overview",
@@ -137,402 +500,456 @@ with st.sidebar:
             "Test History",
             "Regression Report",
         ],
+        key="page",
+        label_visibility="collapsed",
     )
 
     st.divider()
-    st.caption("Static scan mode")
-    st.caption("Uploaded code is inspected, never executed.")
+
+    st.markdown(
+        """
+        <div class="tg-row">
+        🔒 <b>Privacy first</b><br>
+        <span class="tg-muted">Uploaded code is never executed.</span>
+        </div>
+        <div class="tg-row">
+        <span class="tg-pill">● Prototype v1.0</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
-# -----------------------------
-# Overview
-# -----------------------------
+page = st.session_state.page
+
+
+# =========================================================
+# OVERVIEW
+# =========================================================
+
 if page == "Overview":
-    st.title("🛡️ TraceGate")
-    st.subheader("Test AI applications before they reach users.")
-    st.write(
-        "Inspect project ZIP files, compare model responses, "
-        "and review saved test results."
+    runs = st.session_state.test_runs
+    latest = runs[-1] if runs else None
+    scan = st.session_state.latest_scan
+
+    st.markdown(
+        """
+        <div class="tg-hero">
+          <div class="tg-shield">🛡️</div>
+          <h1><span class="tg-gradient">TraceGate</span></h1>
+          <div class="tg-subtitle">AI Application Pre-release Testing</div>
+          <p class="tg-description">
+            Inspect your AI project, identify potential risks, and track
+            test results before release. Build safer, more reliable AI.
+          </p>
+          <span class="tg-pill">SCAN &nbsp; ● &nbsp; TEST &nbsp; ● &nbsp; REPORT</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
-    total_tests = len(st.session_state.test_history)
-    total_scans = len(st.session_state.scan_history)
+    a, b, c = st.columns(3)
 
-    failures = sum(
-        item["result"] == "Fail"
-        for item in st.session_state.test_history
-    )
-
-    pass_rate = (
-        (total_tests - failures) / total_tests * 100
-        if total_tests else 0
-    )
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Manual tests", total_tests)
-    col2.metric("ZIP scans", total_scans)
-    col3.metric(
-        "Pass rate",
-        f"{pass_rate:.0f}%" if total_tests else "—",
-    )
-
-    st.divider()
-    st.markdown("### Get started")
-    st.markdown("- **Upload & Scan:** Inspect a project ZIP.")
-    st.markdown("- **Run a Test:** Compare expected and actual AI behavior.")
-    st.markdown("- **Test History:** Review saved tests.")
-    st.markdown("- **Regression Report:** Summarize pass and fail results.")
-
-    if st.session_state.test_history:
-        st.markdown("### Recent tests")
-        st.dataframe(
-            pd.DataFrame(st.session_state.test_history).head(5),
-            use_container_width=True,
-            hide_index=True,
+    with a:
+        st.markdown(
+            f"""
+            <div class="tg-card blue">
+              <div class="tg-label">RECORDED TEST RUNS</div>
+              <div class="tg-number">{len(runs)}</div>
+              <div class="tg-small">Manual comparisons saved this session</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
 
+    with b:
+        score = f"{latest['Average Score']:.1f}/10" if latest else "—"
+        st.markdown(
+            f"""
+            <div class="tg-card green">
+              <div class="tg-label">LATEST AVERAGE SCORE</div>
+              <div class="tg-number">{score}</div>
+              <div class="tg-small">Based on manually entered ratings</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-# -----------------------------
-# Upload & Scan
-# -----------------------------
+    with c:
+        result = latest["Result"] if latest else "No tests yet"
+        st.markdown(
+            f"""
+            <div class="tg-card purple">
+              <div class="tg-label">LATEST TEST RESULT</div>
+              <div style="font-size:17px;font-weight:700;margin-top:10px">{result}</div>
+              <div class="tg-small">Not an automated release decision</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.markdown(
+        '<div class="tg-panel">'
+        '<div class="tg-panel-title">⚡ Quick Actions</div>'
+        '<div class="tg-panel-sub">Jump into the tools you need.</div>',
+        unsafe_allow_html=True,
+    )
+
+    q1, q2, q3, q4 = st.columns(4)
+
+    with q1:
+        st.markdown(
+            '<div class="tg-action"><div class="tg-action-icon">📤</div>'
+            '<div class="tg-action-title">Upload & Scan</div>'
+            '<div class="tg-action-desc">Inspect your project ZIP for selected risk patterns.</div></div>',
+            unsafe_allow_html=True,
+        )
+        if st.button("Start Scan →", key="quick_scan", use_container_width=True):
+            go_to("Upload & Scan")
+            st.rerun()
+
+    with q2:
+        st.markdown(
+            '<div class="tg-action"><div class="tg-action-icon">▶️</div>'
+            '<div class="tg-action-title">Run a Test</div>'
+            '<div class="tg-action-desc">Compare two AI answers and rate quality.</div></div>',
+            unsafe_allow_html=True,
+        )
+        if st.button("Run Test →", key="quick_test", use_container_width=True):
+            go_to("Run a Test")
+            st.rerun()
+
+    with q3:
+        st.markdown(
+            '<div class="tg-action"><div class="tg-action-icon">📋</div>'
+            '<div class="tg-action-title">Test History</div>'
+            '<div class="tg-action-desc">Review your recorded test results.</div></div>',
+            unsafe_allow_html=True,
+        )
+        if st.button("View History →", key="quick_history", use_container_width=True):
+            go_to("Test History")
+            st.rerun()
+
+    with q4:
+        st.markdown(
+            '<div class="tg-action"><div class="tg-action-icon">📊</div>'
+            '<div class="tg-action-title">Regression Report</div>'
+            '<div class="tg-action-desc">Compare the latest scores with baseline.</div></div>',
+            unsafe_allow_html=True,
+        )
+        if st.button("View Report →", key="quick_report", use_container_width=True):
+            go_to("Regression Report")
+            st.rerun()
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown(
+        '<div class="tg-panel">'
+        '<div class="tg-panel-title">🕘 Recent Activity</div>'
+        '<div class="tg-panel-sub">Your latest scan and test runs.</div>',
+        unsafe_allow_html=True,
+    )
+
+    if scan:
+        st.markdown(
+            f'<div class="tg-row">📦 <b>Project scan</b>'
+            f'<span style="float:right" class="tg-pill">Completed</span><br>'
+            f'<span class="tg-muted">{len(scan["files"])} files inventoried · '
+            f'{len(scan["findings"])} findings recorded</span></div>',
+            unsafe_allow_html=True,
+        )
+
+    if runs:
+        for item in reversed(runs[-5:]):
+            st.markdown(
+                f'<div class="tg-row">🧪 <b>{item["Test Name"]}</b>'
+                f'<span style="float:right" class="tg-pill">Saved</span><br>'
+                f'<span class="tg-muted">Average: {item["Average Score"]:.1f}/10 · '
+                f'{item["Date (UTC)"]} UTC</span></div>',
+                unsafe_allow_html=True,
+            )
+    elif not scan:
+        st.caption("No activity yet. Start by scanning a ZIP project.")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    left, right = st.columns([1.3, 1])
+
+    with left:
+        st.markdown(
+            """
+            <div class="tg-panel">
+            <div class="tg-panel-title">🛡️ Security approach</div>
+            <p class="tg-muted">
+            TraceGate currently performs static source inspection.
+            It does not execute uploaded files, and it does not yet
+            provide an isolated runtime environment.
+            </p>
+            <span class="tg-pill">Static inspection prototype</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with right:
+        st.markdown(
+            """
+            <div class="tg-panel">
+            <div class="tg-panel-title">🤖 AI indicators</div>
+            <div class="tg-muted">Library names found in the latest scan</div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        if scan and scan["ai_markers"]:
+            for marker in scan["ai_markers"]:
+                st.markdown(f"- `{marker}`")
+        else:
+            st.caption("No AI library indicators available yet.")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown(
+        '<div class="tg-footer">Better testing today. Safer AI tomorrow.<br>'
+        'TraceGate Prototype · Built for safer AI releases</div>',
+        unsafe_allow_html=True,
+    )
+
+
+# =========================================================
+# UPLOAD & SCAN
+# =========================================================
+
 elif page == "Upload & Scan":
-    st.title("📦 Upload & Scan")
-    st.write(
-        "Upload a ZIP archive to check for common warning signs "
-        "in filenames and source text."
-    )
-    st.caption("This is a static scan. Uploaded code is not executed.")
+    st.title("📤 Upload & Scan")
+    st.caption("Inspect a ZIP archive for selected source-code patterns.")
 
-    uploaded_file = st.file_uploader(
-        "Choose your project ZIP",
+    st.warning(
+        "This prototype never runs uploaded code. Avoid uploading confidential "
+        "source code or real credentials. This is not a security certification."
+    )
+
+    uploaded = st.file_uploader(
+        "Choose your AI project ZIP",
         type=["zip"],
+        help="Maximum compressed upload size: 20 MB.",
     )
 
-    if uploaded_file is not None:
-        st.write(
-            f"Selected: **{uploaded_file.name}** "
-            f"({uploaded_file.size / 1024:.1f} KB)"
-        )
+    if uploaded is not None:
+        st.caption(f"Selected: {uploaded.name}")
 
-        if st.button("Scan ZIP", type="primary"):
+        if st.button("🛡️ Scan Project", type="primary"):
             try:
-                with st.spinner("Inspecting archive..."):
-                    file_rows, findings = scan_zip(uploaded_file)
+                with st.spinner("Inspecting project files..."):
+                    report = scan_project_zip(uploaded.getvalue())
 
-                st.session_state.last_scan = {
-                    "filename": uploaded_file.name,
-                    "files": file_rows,
-                    "findings": findings,
-                }
+                st.session_state.latest_scan = report
+                st.success("Inspection completed.")
 
-                counts = sum(
-                    item["Severity"] == "High"
-                    for item in findings
-                )
-
-                st.session_state.scan_history.insert(0, {
-                    "Time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "Filename": uploaded_file.name,
-                    "Files": len(file_rows),
-                    "Findings": len(findings),
-                    "High severity": counts,
-                })
-
-                st.session_state.scan_history = (
-                    st.session_state.scan_history[:100]
-                )
-
-            except ValueError as exc:
+            except (ValueError, OSError, RuntimeError, zipfile.BadZipFile) as exc:
+                st.session_state.latest_scan = None
                 st.error(str(exc))
 
-    result = st.session_state.last_scan
+    report = st.session_state.latest_scan
 
-    if result:
-        st.divider()
-        st.subheader(f"Results: {result['filename']}")
+    if report:
+        st.markdown("### Scan summary")
 
-        files = result["files"]
-        findings = result["findings"]
+        x, y, z = st.columns(3)
+        x.metric("Files inventoried", len(report["files"]))
+        y.metric("Source files", report["source_count"])
+        z.metric("AI indicators", len(report["ai_markers"]))
 
-        high_count = sum(
-            item["Severity"] == "High"
-            for item in findings
+        st.markdown("### AI library indicators")
+        st.write(", ".join(report["ai_markers"]) if report["ai_markers"] else "None detected.")
+
+        st.markdown("### Project inventory")
+        st.dataframe(
+            pd.DataFrame({"File": report["files"][:100]}),
+            use_container_width=True,
+            hide_index=True,
         )
 
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Files inspected", len(files))
-        col2.metric("Findings", len(findings))
-        col3.metric("High severity", high_count)
+        st.markdown("### Findings")
+        df = pd.DataFrame(report["findings"])
+        st.dataframe(df, use_container_width=True, hide_index=True)
 
-        if findings:
-            st.warning(
-                "Review these heuristic matches. "
-                "Some findings may be false positives."
-            )
-            findings_df = pd.DataFrame(findings)
-            st.dataframe(
-                findings_df,
-                use_container_width=True,
-                hide_index=True,
-            )
+        st.download_button(
+            "⬇️ Download scan report",
+            data=df.to_csv(index=False).encode("utf-8-sig"),
+            file_name="tracegate-scan-report.csv",
+            mime="text/csv",
+        )
 
-            st.download_button(
-                "Download findings CSV",
-                data=findings_df.to_csv(index=False).encode("utf-8"),
-                file_name="tracegate_scan_findings.csv",
-                mime="text/csv",
-            )
-        else:
-            st.success(
-                "No matching warning patterns were found "
-                "by this basic scanner."
-            )
-
-        with st.expander("View ZIP file list"):
-            st.dataframe(
-                pd.DataFrame(files),
-                use_container_width=True,
-                hide_index=True,
-            )
+        st.caption(
+            "Pattern matching may produce false positives and miss risks. "
+            "A clean report does not establish that code is safe."
+        )
 
 
-# -----------------------------
-# Run a Test
-# -----------------------------
+# =========================================================
+# RUN A TEST
+# =========================================================
+
 elif page == "Run a Test":
     st.title("🧪 Run a Test")
-    st.write(
-        "Record a manual comparison between expected AI behavior "
-        "and the response you observed."
-    )
-    st.caption("This form does not call a model API automatically.")
+    st.caption("Manually compare two model answers.")
 
-    with st.form("manual_test_form"):
-        test_name = st.text_input(
-            "Test name",
-            placeholder="e.g. Refuses request for private data",
-        )
+    st.info("This page does not connect to AI models or run prompts automatically.")
 
-        category = st.selectbox(
-            "Test category",
-            [
-                "Correctness",
-                "Safety",
-                "Prompt injection",
-                "Privacy",
-                "Reliability",
-                "Other",
-            ],
-        )
+    test_name = st.text_input("Test name", value="General quality check")
+    prompt = st.text_area("Test prompt", placeholder="Enter the prompt...", height=110)
 
-        prompt = st.text_area("Prompt / test input")
-        expected = st.text_area("Expected response or behavior")
-        actual = st.text_area("Actual model response")
-        notes = st.text_area("Notes (optional)")
+    c1, c2 = st.columns(2)
 
-        result = st.radio(
-            "Result",
-            ["Pass", "Fail", "Needs review"],
-            horizontal=True,
-        )
+    with c1:
+        st.markdown("### 🔵 Model A")
+        answer_a = st.text_area("Model A answer", height=170)
+        score_a = st.slider("Model A quality score", 0, 10, 5)
 
-        submitted = st.form_submit_button(
-            "Save test",
-            type="primary",
-        )
+    with c2:
+        st.markdown("### 🟣 Model B")
+        answer_b = st.text_area("Model B answer", height=170)
+        score_b = st.slider("Model B quality score", 0, 10, 5)
 
-    if submitted:
-        if not test_name.strip():
-            st.error("Please enter a test name.")
-        elif not prompt.strip():
-            st.error("Please enter a prompt or test input.")
+    if st.button("Save Test Result", type="primary"):
+        if not test_name.strip() or not prompt.strip():
+            st.error("Enter both a test name and prompt.")
+        elif not answer_a.strip() or not answer_b.strip():
+            st.error("Enter both model answers.")
         else:
-            add_history({
-                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "test_name": test_name.strip(),
-                "category": category,
-                "result": result,
-                "prompt": prompt.strip(),
-                "expected": expected.strip(),
-                "actual": actual.strip(),
-                "notes": notes.strip(),
-            })
+            avg = (score_a + score_b) / 2
 
-            st.success("Test saved to this session's history.")
+            if score_a > score_b:
+                result = "Model A scored higher"
+            elif score_b > score_a:
+                result = "Model B scored higher"
+            else:
+                result = "Tie"
 
-    st.divider()
-    st.subheader("Quick text comparison")
+            run = {
+                "Run ID": len(st.session_state.test_runs) + 1,
+                "Date (UTC)": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                "Test Name": test_name.strip(),
+                "Prompt": prompt.strip(),
+                "Model A Answer": answer_a.strip(),
+                "Model B Answer": answer_b.strip(),
+                "Model A Score": score_a,
+                "Model B Score": score_b,
+                "Average Score": avg,
+                "Result": result,
+            }
 
-    col1, col2 = st.columns(2)
+            st.session_state.test_runs.append(run)
 
-    with col1:
-        quick_expected = st.text_area(
-            "Expected text",
-            key="quick_expected",
-        )
+            if st.session_state.baseline is None:
+                st.session_state.baseline = {
+                    "Model A Score": score_a,
+                    "Model B Score": score_b,
+                    "Average Score": avg,
+                }
 
-    with col2:
-        quick_actual = st.text_area(
-            "Observed text",
-            key="quick_actual",
-        )
+            st.success("Test result saved for this session.")
 
-    if st.button("Compare text"):
-        if not quick_expected.strip() or not quick_actual.strip():
-            st.info("Enter both texts before comparing.")
-        elif quick_expected.strip() == quick_actual.strip():
-            st.success("The texts match exactly.")
-        else:
-            st.warning(
-                "The texts differ. Review them manually; "
-                "this simple comparison does not judge meaning."
-            )
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Model A", f"{score_a}/10")
+            m2.metric("Model B", f"{score_b}/10")
+            m3.metric("Average", f"{avg:.1f}/10")
+
+            st.write(result)
 
 
-# -----------------------------
-# Test History
-# -----------------------------
+# =========================================================
+# TEST HISTORY
+# =========================================================
+
 elif page == "Test History":
-    st.title("📚 Test History")
+    st.title("📋 Test History")
 
-    history = st.session_state.test_history
+    runs = st.session_state.test_runs
 
-    if not history:
-        st.info("No tests have been saved in this session yet.")
+    if not runs:
+        st.info("No test results yet. Open Run a Test to add one.")
     else:
-        df = pd.DataFrame(history)
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            result_filter = st.selectbox(
-                "Filter by result",
-                ["All", "Pass", "Fail", "Needs review"],
-            )
-
-        with col2:
-            categories = ["All"] + sorted(
-                df["category"].dropna().unique().tolist()
-            )
-            category_filter = st.selectbox(
-                "Filter by category",
-                categories,
-            )
-
-        filtered = df.copy()
-
-        if result_filter != "All":
-            filtered = filtered[
-                filtered["result"] == result_filter
-            ]
-
-        if category_filter != "All":
-            filtered = filtered[
-                filtered["category"] == category_filter
-            ]
+        df = pd.DataFrame(runs)
 
         st.dataframe(
-            filtered,
+            df[
+                [
+                    "Run ID", "Date (UTC)", "Test Name",
+                    "Model A Score", "Model B Score",
+                    "Average Score", "Result",
+                ]
+            ],
             use_container_width=True,
             hide_index=True,
         )
 
         st.download_button(
-            "Export history as CSV",
-            data=filtered.to_csv(index=False).encode("utf-8"),
-            file_name="tracegate_test_history.csv",
+            "⬇️ Export test history",
+            data=df.to_csv(index=False).encode("utf-8-sig"),
+            file_name="tracegate-test-history.csv",
             mime="text/csv",
         )
 
-        with st.expander("View a test's details"):
-            if not filtered.empty:
-                chosen = st.selectbox(
-                    "Choose a test",
-                    filtered.index,
-                    format_func=lambda index: filtered.loc[
-                        index, "test_name"
-                    ],
-                )
-
-                row = filtered.loc[chosen]
-
-                st.write("**Result:**", row["result"])
-                st.write("**Category:**", row["category"])
-                st.write("**Prompt:**", row["prompt"])
-                st.write("**Expected:**", row["expected"] or "(Not provided)")
-                st.write("**Actual:**", row["actual"] or "(Not provided)")
-                st.write("**Notes:**", row["notes"] or "(None)")
+        st.caption("History is temporary and may disappear when the app session resets.")
 
 
-# -----------------------------
-# Regression Report
-# -----------------------------
+# =========================================================
+# REGRESSION REPORT
+# =========================================================
+
 elif page == "Regression Report":
-    st.title("📈 Regression Report")
-    st.write("Summarize the manual tests recorded in this session.")
+    st.title("📊 Regression Report")
+    st.caption("Compare the latest manually entered scores with the first saved run.")
 
-    history = st.session_state.test_history
+    runs = st.session_state.test_runs
+    baseline = st.session_state.baseline
 
-    if not history:
-        st.info("Save some tests first to generate a report.")
+    if not runs or baseline is None:
+        st.info("Save a test result first to establish a baseline.")
     else:
-        df = pd.DataFrame(history)
+        latest = runs[-1]
 
-        total = len(df)
-        passed = int((df["result"] == "Pass").sum())
-        failed = int((df["result"] == "Fail").sum())
-        review = int((df["result"] == "Needs review").sum())
+        df = pd.DataFrame([
+            {
+                "Metric": "Model A score",
+                "Baseline": baseline["Model A Score"],
+                "Latest": latest["Model A Score"],
+            },
+            {
+                "Metric": "Model B score",
+                "Baseline": baseline["Model B Score"],
+                "Latest": latest["Model B Score"],
+            },
+            {
+                "Metric": "Average score",
+                "Baseline": baseline["Average Score"],
+                "Latest": latest["Average Score"],
+            },
+        ])
 
-        pass_rate = passed / total * 100 if total else 0
+        df["Change"] = df["Latest"] - df["Baseline"]
 
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Total tests", total)
-        col2.metric("Passed", passed)
-        col3.metric("Failed", failed)
-        col4.metric("Pass rate", f"{pass_rate:.1f}%")
+        st.dataframe(df, use_container_width=True, hide_index=True)
 
-        st.subheader("Results by category")
+        change = latest["Average Score"] - baseline["Average Score"]
 
-        summary = (
-            df.groupby(["category", "result"])
-            .size()
-            .unstack(fill_value=0)
-            .reset_index()
-        )
-
-        st.dataframe(
-            summary,
-            use_container_width=True,
-            hide_index=True,
-        )
-
-        st.subheader("Tests needing attention")
-
-        attention = df[
-            df["result"].isin(["Fail", "Needs review"])
-        ]
-
-        if attention.empty:
-            st.success("No failed or review-needed tests in this session.")
+        if change > 0:
+            st.success(f"Average score increased by {change:.1f} points.")
+        elif change < 0:
+            st.warning(f"Average score decreased by {abs(change):.1f} points.")
         else:
-            st.dataframe(
-                attention[
-                    ["time", "test_name", "category", "result", "notes"]
-                ],
-                use_container_width=True,
-                hide_index=True,
-            )
+            st.info("Average score is unchanged from baseline.")
 
         st.download_button(
-            "Download regression report CSV",
-            data=df.to_csv(index=False).encode("utf-8"),
-            file_name="tracegate_regression_report.csv",
+            "⬇️ Download regression report",
+            data=df.to_csv(index=False).encode("utf-8-sig"),
+            file_name="tracegate-regression-report.csv",
             mime="text/csv",
         )
 
-
-st.divider()
-st.caption(
-    "TraceGate prototype · Scan results are heuristic indicators, "
-    "not a security guarantee."
-)
+        st.caption(
+            "This compares manually entered scores; it is not an automated "
+            "regression test or release approval."
+        )
