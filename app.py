@@ -724,10 +724,9 @@ elif page == "Upload & Scan":
     st.title("📤 Upload & Scan")
     st.caption("Inspect a ZIP archive for selected source-code patterns.")
 
-    st.warning(
-        "This prototype never runs uploaded code. Avoid uploading confidential "
-        "source code or real credentials. This is not a security certification."
-    )
+    st.caption(
+    "🔒 Static scan mode · Uploaded code is inspected, never executed."
+)
 
     uploaded = st.file_uploader(
         "Choose your AI project ZIP",
