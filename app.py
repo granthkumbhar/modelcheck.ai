@@ -294,6 +294,87 @@ hr {
     .tg-hero { padding: 20px; }
     .tg-panel { padding: 14px; }
 }
+
+/* Pricing page — matched to TraceGate's existing dark navy/blue theme */
+.tg-pricing-hero {
+    text-align: center;
+    padding: 18px 8px 24px;
+}
+.tg-pricing-kicker {
+    display: inline-block;
+    color: #52f2e0;
+    background: #06362f;
+    border: 1px solid #087e75;
+    border-radius: 30px;
+    padding: 5px 12px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+.tg-pricing-hero h1 {
+    margin: 14px 0 8px;
+}
+.tg-pricing-hero p {
+    color: #a9c0df;
+    max-width: 760px;
+    margin: 0 auto;
+}
+.tg-plan {
+    background: linear-gradient(145deg, #0c203b, #07162a);
+    border: 1px solid #19436b;
+    border-radius: 16px;
+    padding: 22px;
+    min-height: 410px;
+    margin-bottom: 12px;
+}
+.tg-plan.featured {
+    border: 2px solid #27d8ff;
+    background: linear-gradient(145deg, #0b2941, #07182a);
+    box-shadow: 0 0 24px #27d8ff12;
+}
+.tg-plan-title {
+    color: #eef5ff;
+    font-size: 22px;
+    font-weight: 800;
+}
+.tg-plan-desc {
+    color: #9bb1cf;
+    font-size: 13px;
+    min-height: 38px;
+    margin-top: 6px;
+}
+.tg-plan-price {
+    color: #ffffff;
+    font-size: 34px;
+    font-weight: 800;
+    margin: 18px 0 0;
+}
+.tg-plan-period {
+    color: #9bb1cf;
+    font-size: 13px;
+    font-weight: 500;
+}
+.tg-plan-feature {
+    color: #c5d6ed;
+    font-size: 13px;
+    margin: 10px 0;
+}
+.tg-plan-check {
+    color: #27d8ff;
+    font-weight: 800;
+    margin-right: 8px;
+}
+.tg-plan-badge {
+    color: #52f2c2;
+    background: #06362f;
+    border: 1px solid #087e75;
+    border-radius: 30px;
+    display: inline-block;
+    padding: 4px 9px;
+    font-size: 10px;
+    font-weight: 700;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -499,6 +580,7 @@ with st.sidebar:
             "Run a Test",
             "Test History",
             "Regression Report",
+            "Pricing",
         ],
         key="page",
         label_visibility="collapsed",
@@ -952,3 +1034,177 @@ elif page == "Regression Report":
             "This compares manually entered scores; it is not an automated "
             "regression test or release approval."
         )
+
+# =========================================================
+# PRICING
+# =========================================================
+
+elif page == "Pricing":
+    st.markdown(
+        """
+        <div class="tg-pricing-hero">
+          <span class="tg-pricing-kicker">TRACEGATE PRICING</span>
+          <h1>Choose the <span class="tg-gradient">plan that fits your needs</span></h1>
+          <p>
+            Get started with TraceGate's AI project inspection and testing
+            tools. Plans below are proposed examples; features and usage limits
+            must be enforced by the application before paid sales.
+          </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    billing = st.radio(
+        "Billing period",
+        ["Monthly", "Yearly"],
+        horizontal=True,
+        key="pricing_billing_period",
+    )
+    yearly = billing == "Yearly"
+    if yearly:
+        st.caption("Yearly prices are illustrative and shown as annual totals.")
+
+    plans = [
+        {
+            "name": "Starter",
+            "desc": "For individual developers exploring TraceGate",
+            "monthly": 0,
+            "yearly": 0,
+            "features": [
+                "Basic project ZIP inspection",
+                "Selected source-pattern checks",
+                "Manual test comparisons",
+                "Session-only history",
+            ],
+            "button": "Get Started",
+            "featured": False,
+        },
+        {
+            "name": "Pro",
+            "desc": "For developers who need a more regular workflow",
+            "monthly": 499,
+            "yearly": 4990,
+            "features": [
+                "Everything in Starter",
+                "Proposed higher usage limits",
+                "Downloadable scan reports",
+                "Extended report history (to be built)",
+            ],
+            "button": "Upgrade to Pro",
+            "featured": True,
+        },
+        {
+            "name": "Business",
+            "desc": "For teams and companies",
+            "monthly": 1999,
+            "yearly": 19990,
+            "features": [
+                "Everything in Pro",
+                "Team management (to be built)",
+                "Centralized billing (to be built)",
+                "Custom integration discussion",
+            ],
+            "button": "Contact Sales",
+            "featured": False,
+        },
+    ]
+
+    cols = st.columns(3, gap="medium")
+    for col, plan in zip(cols, plans):
+        with col:
+            price = plan["yearly"] if yearly else plan["monthly"]
+            if price == 0:
+                price_text = "Free"
+                period_text = ""
+            else:
+                price_text = f"₹{price:,}"
+                period_text = "/year" if yearly else "/month"
+
+            badge = (
+                '<div class="tg-plan-badge">MOST POPULAR</div><br><br>'
+                if plan["featured"] else ""
+            )
+            features_html = "".join(
+                '<div class="tg-plan-feature">'
+                '<span class="tg-plan-check">✓</span>'
+                + feature
+                + "</div>"
+                for feature in plan["features"]
+            )
+            st.markdown(
+                f"""
+                <div class="tg-plan {'featured' if plan['featured'] else ''}">
+                  {badge}
+                  <div class="tg-plan-title">{plan['name']}</div>
+                  <div class="tg-plan-desc">{plan['desc']}</div>
+                  <div class="tg-plan-price">{price_text}
+                    <span class="tg-plan-period">{period_text}</span>
+                  </div>
+                  <hr>
+                  {features_html}
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            if st.button(
+                plan["button"] + " →",
+                key="pricing_" + plan["name"],
+                use_container_width=True,
+                type="primary" if plan["featured"] else "secondary",
+            ):
+                if plan["name"] == "Starter":
+                    st.success("You're viewing the free Starter plan.")
+                elif plan["name"] == "Pro":
+                    st.info(
+                        "Checkout is not connected yet. Add a payment-provider "
+                        "checkout URL and verify payments on the server before "
+                        "activating a paid plan."
+                    )
+                else:
+                    st.session_state["show_sales_form"] = True
+
+    st.markdown(
+        """
+        <div class="tg-panel">
+          <div class="tg-panel-title">Why choose TraceGate?</div>
+          <div class="tg-panel-sub">
+            A dark, developer-focused workspace for inspecting projects and
+            reviewing manually recorded AI test results.
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    f1, f2, f3 = st.columns(3)
+    with f1:
+        st.markdown("### 🛡️ Privacy first")
+        st.caption("Uploaded project files are inspected, not executed.")
+    with f2:
+        st.markdown("### ⚡ Practical reports")
+        st.caption("Review findings and download scan reports.")
+    with f3:
+        st.markdown("### 📊 Testing workflow")
+        st.caption("Record and compare manually entered model scores.")
+
+    if st.session_state.get("show_sales_form", False):
+        st.markdown("### Contact sales")
+        with st.form("tracegate_sales_form"):
+            contact_name = st.text_input("Your name")
+            contact_email = st.text_input("Email address")
+            company = st.text_input("Company (optional)")
+            requirements = st.text_area("What would your team need?")
+            submitted = st.form_submit_button("Prepare enquiry")
+        if submitted:
+            if not contact_name.strip() or "@" not in contact_email or not requirements.strip():
+                st.error("Enter your name, a valid email address, and your requirements.")
+            else:
+                st.success(
+                    "The form is filled in, but this app does not yet send enquiries. "
+                    "Connect an email service or backend before publishing this form."
+                )
+
+    st.caption(
+        "Pricing is illustrative. Payments, accounts, subscription management, "
+        "plan enforcement, and sales-email delivery are not connected yet."
+    )
