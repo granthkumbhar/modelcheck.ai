@@ -1036,7 +1036,7 @@ elif page == "Regression Report":
         )
 
 # =========================================================
-# PRICING
+# PRICING — HONEST EARLY-ACCESS TIERS
 # =========================================================
 
 elif page == "Pricing":
@@ -1044,167 +1044,168 @@ elif page == "Pricing":
         """
         <div class="tg-pricing-hero">
           <span class="tg-pricing-kicker">TRACEGATE PRICING</span>
-          <h1>Choose the <span class="tg-gradient">plan that fits your needs</span></h1>
+          <h1>Simple pricing for <span class="tg-gradient">AI testing</span></h1>
           <p>
-            Get started with TraceGate's AI project inspection and testing
-            tools. Plans below are proposed examples; features and usage limits
-            must be enforced by the application before paid sales.
+            Start free, validate your workflow, and upgrade only when the paid
+            features you need are available. Checkout is not enabled yet.
           </p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    billing = st.radio(
-        "Billing period",
-        ["Monthly", "Yearly"],
-        horizontal=True,
-        key="pricing_billing_period",
+    st.info(
+        "Early-access pricing proposal. Payments, accounts, per-customer usage "
+        "limits, and subscription enforcement are not connected in this prototype. "
+        "Do not treat a button click as a purchase."
     )
-    yearly = billing == "Yearly"
-    if yearly:
-        st.caption("Yearly prices are illustrative and shown as annual totals.")
 
     plans = [
         {
             "name": "Starter",
-            "desc": "For individual developers exploring TraceGate",
-            "monthly": 0,
-            "yearly": 0,
+            "desc": "Try the current TraceGate prototype",
+            "price": "₹0",
+            "period": "forever",
+            "badge": "AVAILABLE NOW",
             "features": [
-                "Basic project ZIP inspection",
-                "Selected source-pattern checks",
-                "Manual test comparisons",
-                "Session-only history",
+                "ZIP source-pattern scan (20 MB upload cap)",
+                "Selected secret and risky-code pattern checks",
+                "Manual comparison of two AI answers",
+                "Session-only test history and baseline",
+                "CSV export for available reports",
             ],
-            "button": "Get Started",
+            "cta": "Use free plan",
             "featured": False,
+            "status": "available",
         },
         {
             "name": "Pro",
-            "desc": "For developers who need a more regular workflow",
-            "monthly": 499,
-            "yearly": 4990,
+            "desc": "For developers testing projects regularly",
+            "price": "₹299",
+            "period": "/month · proposed",
+            "badge": "EARLY-ACCESS PRICE",
             "features": [
                 "Everything in Starter",
-                "Proposed higher usage limits",
-                "Downloadable scan reports",
-                "Extended report history (to be built)",
+                "Persistent scan and test history",
+                "Saved projects and named baselines",
+                "Repeatable test suites and regression comparisons",
+                "Downloadable report bundle (CSV/PDF)",
+                "Higher usage limits per authenticated account",
             ],
-            "button": "Upgrade to Pro",
+            "cta": "Join Pro waitlist",
             "featured": True,
+            "status": "planned",
         },
         {
-            "name": "Business",
-            "desc": "For teams and companies",
-            "monthly": 1999,
-            "yearly": 19990,
+            "name": "Team",
+            "desc": "For small AI agencies and product teams",
+            "price": "₹999",
+            "period": "/month · proposed",
+            "badge": "COMING SOON",
             "features": [
-                "Everything in Pro",
-                "Team management (to be built)",
-                "Centralized billing (to be built)",
-                "Custom integration discussion",
+                "Everything planned for Pro",
+                "Multiple team members and roles",
+                "Shared projects, reports, and baselines",
+                "Team usage and audit trail",
+                "Centralized billing and workspace controls",
+                "Priority support after launch",
             ],
-            "button": "Contact Sales",
+            "cta": "Register interest",
             "featured": False,
+            "status": "planned",
         },
     ]
 
     cols = st.columns(3, gap="medium")
     for col, plan in zip(cols, plans):
         with col:
-            price = plan["yearly"] if yearly else plan["monthly"]
-            if price == 0:
-                price_text = "Free"
-                period_text = ""
-            else:
-                price_text = f"₹{price:,}"
-                period_text = "/year" if yearly else "/month"
-
-            badge = (
-                '<div class="tg-plan-badge">MOST POPULAR</div><br><br>'
-                if plan["featured"] else ""
+            badge_html = '<div class="tg-plan-badge">' + plan["badge"] + '</div><br>'
+            feature_html = "".join(
+                '<div class="tg-plan-feature"><span class="tg-plan-check">✓</span>'
+                + feature + '</div>' for feature in plan["features"]
             )
-            features_html = "".join(
-                '<div class="tg-plan-feature">'
-                '<span class="tg-plan-check">✓</span>'
-                + feature
-                + "</div>"
-                for feature in plan["features"]
+            featured_class = "featured" if plan["featured"] else ""
+            card_html = (
+                f'<div class="tg-plan {featured_class}">'
+                + badge_html
+                + f'<div class="tg-plan-title">{plan["name"]}</div>'
+                + f'<div class="tg-plan-desc">{plan["desc"]}</div>'
+                + f'<div class="tg-plan-price">{plan["price"]}<span class="tg-plan-period"> {plan["period"]}</span></div>'
+                + '<hr>' + feature_html + '</div>'
             )
-            st.markdown(
-                f"""
-                <div class="tg-plan {'featured' if plan['featured'] else ''}">
-                  {badge}
-                  <div class="tg-plan-title">{plan['name']}</div>
-                  <div class="tg-plan-desc">{plan['desc']}</div>
-                  <div class="tg-plan-price">{price_text}
-                    <span class="tg-plan-period">{period_text}</span>
-                  </div>
-                  <hr>
-                  {features_html}
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+            st.markdown(card_html, unsafe_allow_html=True)
             if st.button(
-                plan["button"] + " →",
+                plan["cta"],
                 key="pricing_" + plan["name"],
                 use_container_width=True,
                 type="primary" if plan["featured"] else "secondary",
             ):
-                if plan["name"] == "Starter":
-                    st.success("You're viewing the free Starter plan.")
-                elif plan["name"] == "Pro":
-                    st.info(
-                        "Checkout is not connected yet. Add a payment-provider "
-                        "checkout URL and verify payments on the server before "
-                        "activating a paid plan."
-                    )
+                if plan["status"] == "available":
+                    st.session_state.page = "Overview"
+                    st.rerun()
                 else:
-                    st.session_state["show_sales_form"] = True
+                    st.session_state["show_pricing_interest"] = plan["name"]
+
+    if st.session_state.get("show_pricing_interest"):
+        selected_plan = st.session_state["show_pricing_interest"]
+        st.markdown(f"### Register interest in {selected_plan}")
+        st.caption(
+            "This prototype cannot send your enquiry yet. The form below prepares "
+            "your details locally; connect a secure backend/email service before launch."
+        )
+        with st.form("tracegate_interest_form"):
+            interest_name = st.text_input("Name")
+            interest_email = st.text_input("Email")
+            interest_use = st.text_area("What would you use TraceGate for?")
+            interest_submit = st.form_submit_button("Validate details")
+        if interest_submit:
+            if not interest_name.strip() or "@" not in interest_email or not interest_use.strip():
+                st.error("Enter your name, a valid email address, and how you plan to use TraceGate.")
+            else:
+                st.session_state["pricing_interest_draft"] = {
+                    "plan": selected_plan,
+                    "name": interest_name.strip(),
+                    "email": interest_email.strip(),
+                    "use_case": interest_use.strip(),
+                }
+                st.success("Details validated in this session only; no message was sent.")
+                st.json(st.session_state["pricing_interest_draft"])
+
+    st.markdown("### Feature availability")
+    feature_status = pd.DataFrame([
+        {"Feature": "ZIP static scan", "Status": "Available", "Notes": "Pattern-based; can miss issues or flag false positives."},
+        {"Feature": "Manual answer comparison", "Status": "Available", "Notes": "User enters both answers and scores manually."},
+        {"Feature": "CSV report export", "Status": "Available", "Notes": "Exports the report/history currently in the session."},
+        {"Feature": "Persistent history across sessions", "Status": "Not implemented", "Notes": "Requires authenticated, durable storage."},
+        {"Feature": "Automated prompt/model execution", "Status": "Not implemented", "Notes": "Current app does not call AI models."},
+        {"Feature": "Payments and subscription enforcement", "Status": "Not implemented", "Notes": "Requires payment verification and account-level plan limits."},
+        {"Feature": "Team accounts and shared workspaces", "Status": "Not implemented", "Notes": "Requires authentication, roles, and workspace isolation."},
+    ])
+    st.dataframe(feature_status, use_container_width=True, hide_index=True)
 
     st.markdown(
         """
         <div class="tg-panel">
-          <div class="tg-panel-title">Why choose TraceGate?</div>
-          <div class="tg-panel-sub">
-            A dark, developer-focused workspace for inspecting projects and
-            reviewing manually recorded AI test results.
-          </div>
+          <div class="tg-panel-title">Why TraceGate?</div>
+          <div class="tg-panel-sub">A developer-focused starting point for inspecting AI projects, recording manual tests, and reviewing evidence before release.</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
     f1, f2, f3 = st.columns(3)
     with f1:
-        st.markdown("### 🛡️ Privacy first")
-        st.caption("Uploaded project files are inspected, not executed.")
+        st.markdown("### 🛡️ Inspect")
+        st.caption("Uploaded code is inspected as text; it is not executed.")
     with f2:
-        st.markdown("### ⚡ Practical reports")
-        st.caption("Review findings and download scan reports.")
+        st.markdown("### 🧪 Compare")
+        st.caption("Record manually entered answers and quality scores.")
     with f3:
-        st.markdown("### 📊 Testing workflow")
-        st.caption("Record and compare manually entered model scores.")
-
-    if st.session_state.get("show_sales_form", False):
-        st.markdown("### Contact sales")
-        with st.form("tracegate_sales_form"):
-            contact_name = st.text_input("Your name")
-            contact_email = st.text_input("Email address")
-            company = st.text_input("Company (optional)")
-            requirements = st.text_area("What would your team need?")
-            submitted = st.form_submit_button("Prepare enquiry")
-        if submitted:
-            if not contact_name.strip() or "@" not in contact_email or not requirements.strip():
-                st.error("Enter your name, a valid email address, and your requirements.")
-            else:
-                st.success(
-                    "The form is filled in, but this app does not yet send enquiries. "
-                    "Connect an email service or backend before publishing this form."
-                )
+        st.markdown("### 📊 Report")
+        st.caption("Export currently available findings and test history.")
 
     st.caption(
-        "Pricing is illustrative. Payments, accounts, subscription management, "
-        "plan enforcement, and sales-email delivery are not connected yet."
+        "Prices are proposed for early validation, not active subscriptions. "
+        "Before accepting payment, implement secure authentication, durable customer-isolated "
+        "storage, per-account limits, payment verification, privacy/retention controls, "
+        "and support/refund terms."
     )
