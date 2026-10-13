@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 import streamlit as st
-
+from supabase import create_client
 
 # =========================================================
 # TRACEGATE — PREMIUM DARK DASHBOARD
