@@ -20,6 +20,13 @@ supabase: Client = create_client(
     SUPABASE_URL,
     SUPABASE_ANON_KEY,
 )
+
+try:
+    supabase.table("profiles").select("id").limit(1).execute()
+    st.session_state["supabase_connected"] = True
+except Exception as e:
+    st.session_state["supabase_connected"] = False
+    st.error("Supabase connection failed. Check your Supabase secrets.")
 # =========================================================
 # TRACEGATE — PREMIUM DARK DASHBOARD
 # =========================================================
