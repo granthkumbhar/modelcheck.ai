@@ -771,8 +771,8 @@ if st.session_state["user"] is None:
                 except Exception as exc:
 
                     st.error(
-                        "Could not create the account."
-                    )
+    f"Could not create the account: {exc}"
+)
 
     st.stop()
 
